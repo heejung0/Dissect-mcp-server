@@ -589,3 +589,86 @@ def detect_artifacts_existence(
         summary["artifacts"][key] = result
 
     return summary
+
+@mcp.tool()
+def extract_file_or_directory(
+    image_path: str,
+    fs_path: str,
+    output_dir: Optional[str] = None,
+    max_list: int = 200,
+) -> Dict[str, Any]:
+    """
+    디스크 이미지 내부 파일/디렉터리 추출(target-fs 래퍼).
+
+    내부적으로 실행되는 명령:
+        target-fs <image> cp "<fs_path>" -o <output_dir>
+
+    예시:
+        target-fs image.E01 cp "C:/Windows/System32/config" -o ./config_dump
+
+    - image_path: 디스크 이미지 경로 (분할 이미지 가능)
+    - fs_path: 이미지 내부 절대 경로 (예: "C:/Windows/System32/config/SAM")
+    - output_dir:
+        * 지정 시: 해당 디렉터리에 바로 cp
+        * 미지정 시: DEFAULT_EXTRACT_DIR/<sanitized_fs_path>_<timestamp>/ 으로 생성
+    - max_list: 반환 시 샘플로 보여줄 파일 목록 최대 개수
+    """
+    resolved = _resolve_image(image_path)
+    base_dir = _ensure_extract_dir(output_dir or DEFAULT_EXTRACT_DIR)
+
+    if output_dir is None:
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", fs_path)
+        subdir = f"{safe_name}_{int(time.time())}"
+        out_dir = base_dir / subdir
+        out_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        out_dir = base_dir
+
+    cmd = [
+        TARGET_FS_BIN,
+        resolved["target"],
+        "cp",
+        fs_path,
+        "-o",
+        str(out_dir),
+    ]
+
+    cp = _run(cmd, check=False)
+    if cp.returncode != 0:
+        return {
+            "image": resolved["original"],
+            "target": resolved["target"],
+            "fs_path": fs_path,
+            "output_dir": str(out_dir),
+            "error": {
+                "returncode": cp.returncode,
+                "stdout": cp.stdout,
+                "stderr": cp.stderr,
+            },
+        }
+
+    created_files: List[str] = []
+    created_dirs: List[str] = []
+
+    for root, dirs, files in os.walk(out_dir):
+        for d in dirs:
+            created_dirs.append(str(Path(root) / d))
+        for f in files:
+            created_files.append(str(Path(root) / f))
+            if len(created_files) >= max_list:
+                break
+        if len(created_files) >= max_list:
+            break
+
+    return {
+        "image": resolved["original"],
+        "target": resolved["target"],
+        "fs_path": fs_path,
+        "output_dir": str(out_dir),
+        "created_files_sample": created_files,
+        "created_dirs_sample": created_dirs,
+        "note": (
+            "Files/directories are copied using target-fs cp. "
+            "created_*_sample는 최대 max_list까지만 보여줌"
+        ),
+    }
