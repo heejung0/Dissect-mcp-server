@@ -672,3 +672,102 @@ def extract_file_or_directory(
             "created_*_sample는 최대 max_list까지만 보여줌"
         ),
     }
+
+@mcp.tool()
+def acquire_minimal_artifacts(
+    image_path: str,
+    output_dir: Optional[str] = None,
+    profile: str = "minimal",
+    output_type: str = "tar",
+) -> Dict[str, Any]:
+    """
+    acquire를 이용해 기본 아티팩트 컨테이너를 생성하는 래퍼.
+
+    내부적으로 실행되는 명령어:
+        acquire -p minimal [image 파일 이름]
+        acquire -p <profile> -ot <output_type> -of <OUT_FILE> <resolved_image>
+
+    - image_path:
+        * E01, raw, 분할(raw .001/.002...) 모두 지원
+        * _resolve_image 로 병합/정규화 후 target 경로 사용
+    - output_dir:
+        * None 이면 ACQUIRE_OUTPUT_DIR/<이미지이름_타임스탬프>/ 에 결과 생성
+        * 지정 시, 해당 디렉터리 하위에 서브디렉터리 없이 바로 파일 생성 기준 디렉터리로 사용
+    - profile:
+        * acquire --profile(-p)에 해당 (기본: "minimal")
+    - output_type:
+        * acquire --output-type(-ot)에 해당 (기본: "tar")
+    """
+    resolved = _resolve_image(image_path)
+
+    base_dir = _ensure_extract_dir(output_dir or ACQUIRE_OUTPUT_DIR)
+
+    img_name = Path(resolved["original"]).name
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", img_name)
+
+    ts = int(time.time())
+
+    out_subdir = base_dir / f"{safe_name}_{ts}"
+    out_subdir.mkdir(parents=True, exist_ok=True)
+
+    ext = ".tar" if output_type == "tar" else f".{output_type}"
+    out_file = out_subdir / f"{safe_name}{ext}"
+
+    cmd = [
+        ACQUIRE_BIN,
+        "-p",
+        profile,
+        "-ot",
+        output_type,
+        "-of",
+        str(out_file),
+        resolved["target"],
+    ]
+
+    cp = _run(cmd, check=False)
+
+    extracted_dir: Optional[Path] = None
+    extract_error: Optional[str] = None
+    extracted_files_sample: List[str] = []
+
+    if cp.returncode == 0 and output_type == "tar" and out_file.exists():
+        try:
+            extracted_dir = out_subdir / "extracted"
+            extracted_dir.mkdir(parents=True, exist_ok=True)
+
+            with tarfile.open(out_file, "r") as tf:
+                tf.extractall(path=extracted_dir)
+
+            for root, dirs, files in os.walk(extracted_dir):
+                for f in files:
+                    extracted_files_sample.append(str(Path(root) / f))
+                    if len(extracted_files_sample) >= 100:
+                        break
+                if len(extracted_files_sample) >= 100:
+                    break
+
+        except Exception as e:
+            extract_error = str(e)
+
+    return {
+        "ok": cp.returncode == 0,
+        "image": resolved["original"],
+        "target": resolved["target"],
+        "merged": resolved["merged"],
+        "segments": resolved["segments"],
+        "profile": profile,
+        "output_type": output_type,
+        "output_dir": str(out_subdir),
+        "output_file": str(out_file),
+        "returncode": cp.returncode,
+        "stdout_head": "\n".join(cp.stdout.splitlines()[:50]),
+        "stderr": cp.stderr,
+        "cmd": cmd,
+        "extracted_dir": str(extracted_dir) if extracted_dir else None,
+        "extracted_files_sample": extracted_files_sample,
+        "extract_error": extract_error,
+        "note": (
+            "acquire -p minimal 로 tar 생성 후, 성공 시 out_dir/extracted/ 에 자동으로 압축 해제"
+            "extracted_files_sample 은 최대 100개까지만 표시"
+        ),
+    }
