@@ -176,6 +176,24 @@ def _parse_plugin_listing(text: str) -> List[Dict[str, Any]]:
 
     return plugins
 
+def _parse_query_output(raw: str) -> Any:
+    """
+    target-query / rdump 출력 → JSON-friendly 구조 변환.
+
+    1. json.loads 시도
+    2. 실패 시, non-empty line 리스트로 반환
+    """
+    s = raw.strip()
+    if not s:
+        return []
+
+    try:
+        return json.loads(s)
+    except Exception:
+        pass
+
+    return [ln for ln in s.splitlines() if ln.strip()]
+
 @mcp.tool()
 def disk_image_info(image_path: str) -> Dict[str, Any]:
     """
@@ -220,4 +238,44 @@ def list_plugins(image_path: str) -> Dict[str, Any]:
         "merged": resolved["merged"],
         "segments": resolved["segments"],
         "plugins": plugins,
+    }
+
+@mcp.tool()
+def run_single_plugin(
+    image_path: str,
+    plugin: str,
+    max_rows: int = 0,
+) -> Dict[str, Any]:
+    """
+    단일 Dissect 플러그인 실행(target-query).
+
+    - plugin: full name (예: "os.windows.prefetch")
+      * list_plugins 의 full_name 사용 권장
+    - 시도 순서:
+      1) target-query <image> -f <plugin> --json
+      2) 실패하면 --json 없이 다시 실행 후 일반 텍스트 파싱
+
+    - max_rows > 0 이면 리스트형 결과를 상위 max_rows 개까지만 자름
+    """
+    resolved = _resolve_image(image_path)
+
+    cmd = [TARGET_QUERY_BIN, resolved["target"], "-f", plugin, "--json"]
+    cp = _run(cmd, check=False)
+
+    if cp.returncode != 0:
+        cmd_nojson = [TARGET_QUERY_BIN, resolved["target"], "-f", plugin]
+        cp = _run(cmd_nojson)
+
+    parsed = _parse_query_output(cp.stdout)
+
+    if isinstance(parsed, list) and max_rows and len(parsed) > max_rows:
+        parsed = parsed[:max_rows]
+
+    return {
+        "image": resolved["original"],
+        "target": resolved["target"],
+        "plugin": plugin,
+        "max_rows": max_rows,
+        "raw_stdout": cp.stdout,
+        "parsed": parsed,
     }
