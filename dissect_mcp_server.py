@@ -53,6 +53,16 @@ _ARTIFACT_PLUGINS = {
     "sru": ("os.windows.sru.application", "SRU Application usage"),
 }
 
+_TIMELINE_PLUGINS = {
+    "mft": "filesystem.ntfs.mft.records",
+    "prefetch": "os.windows.prefetch",
+    "amcache": "os.windows.amcache.files",
+    "jumplist_auto": "os.windows.jumplist.automatic_destination",
+    "jumplist_custom": "os.windows.jumplist.custom_destination",
+    "activities": "os.windows.activitiescache",
+    "evtx": "os.windows.log.evtx",
+}
+
 class DissectError(RuntimeError):
     """Dissect 관련 외부 명령 실패 시 사용하는 예외."""
 
@@ -771,3 +781,67 @@ def acquire_minimal_artifacts(
             "extracted_files_sample 은 최대 100개까지만 표시"
         ),
     }
+
+@mcp.tool()
+def build_timeline(
+    image_path: str,
+    plugins: Optional[List[str]] = None,
+    max_rows_per_plugin: int = 5000,
+) -> Dict[str, Any]:
+    """
+    여러 Dissect 타임라인 아티팩트를 묶어서 단일 정렬 타임라인 생성.
+
+    - plugins: 사용할 타임라인 키 리스트
+      * None 이면 _TIMELINE_PLUGINS 전체 사용
+      * 예: ["mft", "prefetch", "evtx"]
+    - 각 플러그인을 run_single_plugin 으로 실행 후, 레코드에서 timestamp 필드 추출
+    - timestamp 기준으로 전체 타임라인 정렬
+    """
+    resolved = _resolve_image(image_path)
+    selected = plugins or list(_TIMELINE_PLUGINS.keys())
+
+    timeline: List[Dict[str, Any]] = []
+    errors: Dict[str, str] = {}
+
+    for key in selected:
+        plugin = _TIMELINE_PLUGINS.get(key)
+        if not plugin:
+            errors[key] = f"Unknown timeline plugin key: {key}"
+            continue
+
+        try:
+            r = run_single_plugin(image_path=image_path, plugin=plugin, max_rows=max_rows_per_plugin)
+            parsed = r.get("parsed")
+            if not isinstance(parsed, list):
+                continue
+
+            for rec in parsed:
+                if not isinstance(rec, dict):
+                    continue
+                ts = _extract_timestamp(rec)
+                if not ts:
+                    continue
+                timeline.append(
+                    {
+                        "source": key,
+                        "plugin": plugin,
+                        "timestamp": ts,
+                        "record": rec,
+                    }
+                )
+        except Exception as e:
+            errors[key] = str(e)
+
+    timeline.sort(key=lambda x: x.get("timestamp", ""))
+
+    return {
+        "image": resolved["original"],
+        "target": resolved["target"],
+        "plugins_used": selected,
+        "timeline_length": len(timeline),
+        "timeline": timeline,
+        "errors": errors,
+    }
+
+if __name__ == "__main__":
+    mcp.run()
