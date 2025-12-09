@@ -70,14 +70,6 @@ def _run(
     timeout: int = 0,
     check: bool = True,
 ) -> subprocess.CompletedProcess:
-    """
-    공통 subprocess.run 래퍼.
-
-    - stdout/stderr 를 텍스트(str)로 반환
-    - cwd 지정 가능
-    - timeout=0 이면 제한 없음
-    - check=True 이면 returncode != 0 일 때 DissectError 발생
-    """
     cp = subprocess.run(
         cmd,
         stdout=subprocess.PIPE,
@@ -95,22 +87,6 @@ def _run(
     return cp
 
 def _resolve_image(image_path: str) -> Dict[str, Any]:
-    """
-    디스크 이미지 경로 정규화 및 분할(raw) 이미지 병합 처리.
-
-    - 입력: image_path (예: SCHARDT.001, 2023_KDFS.E01 등)
-    - raw 분할 이미지(.001, .002 ...) 이면서 EWF(.E01, .EX01 등)가 아닌 경우:
-      * 디렉터리 내 동일 prefix + .[0-9][0-9][0-9] 패턴을 모두 찾고
-      * <stem>.raw 로 병합(SCHARDT.001 → SCHARDT.raw)
-    - EWF 계열(.E01, .EX01 등)은 병합 없이 그대로 사용
-    - 반환:
-      {
-        "original": 원본 경로(str),
-        "target": 실제 사용될 경로(str),  (병합된 .raw 또는 원본)
-        "segments": 세그먼트 목록(str 리스트),
-        "merged": 병합 여부(bool)
-      }
-    """
     p = Path(image_path).expanduser().resolve()
     if not p.exists():
         raise FileNotFoundError(f"Image not found: {p}")
@@ -145,15 +121,6 @@ def _resolve_image(image_path: str) -> Dict[str, Any]:
     }
 
 def _parse_plugin_listing(text: str) -> List[Dict[str, Any]]:
-    """
-    `target-query <image> -l -q` 출력 파싱 → 평탄화된 플러그인 리스트 생성.
-
-    Dissect의 plugin tree 구조 예:
-        os:
-          windows:
-            prefetch:
-              prefetch - Windows Prefetch files (output: records)
-    """
     plugins: List[Dict[str, Any]] = []
     stack: Dict[int, str] = {}
 
@@ -220,17 +187,6 @@ def _filter_plugins(
     plugins: List[Dict[str, Any]],
     keywords: Optional[List[str]],
 ) -> List[Dict[str, Any]]:
-    """
-    플러그인 메타데이터를 키워드로 필터링.
-
-    - 검색 대상 필드:
-      * name
-      * full_name (os.windows.prefetch 등)
-      * namespaces (os/windows/prefetch)
-      * description
-      * output 타입
-    - keywords 가 None/빈 리스트면 전체 반환
-    """
     if not keywords:
         return plugins
 
@@ -251,12 +207,6 @@ def _filter_plugins(
     return [p for p in plugins if matches(p)]
 
 def _parse_query_output(raw: str) -> Any:
-    """
-    target-query / rdump 출력 → JSON-friendly 구조 변환.
-
-    1. json.loads 시도
-    2. 실패 시, non-empty line 리스트로 반환
-    """
     s = raw.strip()
     if not s:
         return []
@@ -269,25 +219,11 @@ def _parse_query_output(raw: str) -> Any:
     return [ln for ln in s.splitlines() if ln.strip()]
 
 def _ensure_extract_dir(base: Union[str, Path]) -> Path:
-    """
-    추출용 기본 디렉터리 생성/보장.
-
-    - base를 절대경로로 변환 후, 존재하지 않으면 mkdir -p
-    """
     p = Path(base).expanduser().resolve()
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 def _extract_timestamp(record: Dict[str, Any]) -> Optional[str]:
-    """
-    각 레코드(dict)에서 timestamp 후보 필드를 휴리스틱으로 추출.
-
-    - 우선순위 키:
-      ["timestamp", "time", "datetime", "created", "modified",
-       "mtime", "atime", "ctime", "last_write_time", "start_time", "end_time"]
-    - 위 키가 없으면, *_time 으로 끝나는 키 중 첫 번째 truthy 값 사용
-    - 아무것도 없으면 None
-    """
     if not isinstance(record, dict):
         return None
 
@@ -318,10 +254,7 @@ def _extract_timestamp(record: Dict[str, Any]) -> Optional[str]:
 @mcp.tool()
 def disk_image_info(image_path: str) -> Dict[str, Any]:
     """
-    디스크 이미지 기본 정보 확인 (분할 이미지 병합 여부 포함).
-
-    - _resolve_image 로 raw 스플릿 병합 여부 계산
-    - 병합/세그먼트 목록, 파일 크기, 확장자 등 메타 정보 반환
+    디스크 이미지 기본 정보 확인 (분할 이미지 병합 여부 포함)
     """
     resolved = _resolve_image(image_path)
     target = Path(resolved["target"])
@@ -339,13 +272,7 @@ def disk_image_info(image_path: str) -> Dict[str, Any]:
 @mcp.tool()
 def list_plugins(image_path: str) -> Dict[str, Any]:
     """
-    디스크 이미지에서 사용 가능한 Dissect 플러그인 목록 조회.
-
-    내부적으로:
-      target-query <image> -l -q
-
-    를 실행하여 계층형 플러그인 리스트를 가져온 뒤,
-    _parse_plugin_listing 으로 평탄화된 구조로 변환.
+    디스크 이미지에서 사용 가능한 Dissect 플러그인 목록 조회
     """
     resolved = _resolve_image(image_path)
 
@@ -368,15 +295,7 @@ def run_single_plugin(
     max_rows: int = 0,
 ) -> Dict[str, Any]:
     """
-    단일 Dissect 플러그인 실행(target-query).
-
-    - plugin: full name (예: "os.windows.prefetch")
-      * list_plugins 의 full_name 사용 권장
-    - 시도 순서:
-      1) target-query <image> -f <plugin> --json
-      2) 실패하면 --json 없이 다시 실행 후 일반 텍스트 파싱
-
-    - max_rows > 0 이면 리스트형 결과를 상위 max_rows 개까지만 자름
+    단일 Dissect 플러그인 실행
     """
     resolved = _resolve_image(image_path)
 
@@ -397,7 +316,6 @@ def run_single_plugin(
         "target": resolved["target"],
         "plugin": plugin,
         "max_rows": max_rows,
-        "raw_stdout": cp.stdout,
         "parsed": parsed,
     }
 
@@ -409,13 +327,7 @@ def run_multiple_plugins(
     max_rows_per_plugin: int = 0,
 ) -> Dict[str, Any]:
     """
-    키워드 기반 플러그인 일괄 실행 래퍼.
-
-    - list_plugins 결과에서 plugin_keywords 로 필터링
-      * 예: ["prefetch", "amcache", "jumplist"]
-    - max_plugins > 0 이면 앞에서부터 해당 개수까지만 실행
-    - 각 플러그인 실행은 run_single_plugin(...) 사용
-    - 결과는 full_name 기준 딕셔너리로 반환
+    키워드로 여러 플러그인을 골라서 run_single_plugin으로 실행
     """
     resolved = _resolve_image(image_path)
 
@@ -460,12 +372,7 @@ def run_multiple_plugins(
 @mcp.tool()
 def extract_system_profile(image_path: str) -> Dict[str, Any]:
     """
-    OS / Host 기본 프로파일 생성.
-
-    - hostname, OS 버전, 설치 일자, 사용자 목록
-    - 도메인, 타임존, 언어
-    - 네트워크 인터페이스 / IP / MAC 등
-    을 각각의 Dissect 플러그인(_SYSTEM_PLUGINS) 호출로 수집.
+    OS / Host 기본 프로파일 생성
     """
     resolved = _resolve_image(image_path)
     profile: Dict[str, Any] = {
@@ -493,18 +400,7 @@ def search_keyword(
     max_rows: int = 0,
 ) -> Dict[str, Any]:
     """
-    target-query 출력에 rdump -s 표현식을 적용해 필터링된 결과를 JSON으로 반환.
-
-    쉘에서 사용하던 명령을 그대로 MCP로 감싼 형태:
-
-      - 전체 exe 검색:
-          target-query <image> -f walkfs | rdump -s "r.path.suffix=='.exe'" --json
-
-      - 특정 파일명 검색:
-          target-query <image> -f walkfs | rdump -s "r.path.name == 'ransom.exe'" --json
-
-    - plugin: target-query 에 사용할 플러그인 이름 (예: "walkfs")
-    - search: rdump -s 에 들어갈 표현식 (r.path.* 기반)
+    target-query 출력에 rdump -s 표현식을 적용해 필터링된 결과를 JSON으로 반환
     """
     resolved = _resolve_image(image_path)
 
@@ -551,7 +447,6 @@ def search_keyword(
         "plugin": plugin,
         "search": search,
         "max_rows": max_rows,
-        "raw_stdout": out,
         "parsed": parsed,
     }
 
@@ -559,10 +454,6 @@ def search_keyword(
 def list_artifact_plugins() -> Dict[str, Any]:
     """
     _ARTIFACT_PLUGINS에 등록된 아티팩트 플러그인 목록 반환.
-
-    - key: 내부 식별자 (예: "prefetch")
-    - plugin: target-query에서 사용할 full plugin name (예: "os.windows.prefetch")
-    - description: 사람이 보기 좋은 설명
     """
     artifacts = []
     for key, (plugin, desc) in _ARTIFACT_PLUGINS.items():
@@ -578,14 +469,10 @@ def list_artifact_plugins() -> Dict[str, Any]:
 @mcp.tool()
 def run_all_artifact_plugins(
     image_path: str,
-    max_rows_per_plugin: int = 0,
+    max_rows_per_plugin: int = 500,
 ) -> Dict[str, Any]:
     """
-    _ARTIFACT_PLUGINS에 정의된 모든 플러그인을 실행하고,
-    각 플러그인의 parsed 결과를 그대로 반환하는 래퍼.
-
-    - image_path: 디스크 이미지 경로
-    - max_rows_per_plugin: 각 플러그인 결과에서 상위 N개까지만 사용 (0이면 제한 없음)
+    _ARTIFACT_PLUGINS에 정의된 모든 플러그인을 실행하고, 각 플러그인의 parsed 결과 반환
     """
     resolved = _resolve_image(image_path)
 
@@ -630,70 +517,14 @@ def run_all_artifact_plugins(
     return results
 
 @mcp.tool()
-def detect_artifacts_existence(
-    image_path: str,
-    max_rows_per_artifact: int = 5,
-) -> Dict[str, Any]:
-    """
-    주요 윈도우 아티팩트 존재 여부 빠른 스캐닝.
-
-    - _ARTIFACT_PLUGINS 에 정의된 플러그인들을 각각 max_rows_per_artifact 개수만큼 실행
-    - parsed 결과가 비어있지 않으면 exists=True 로 표시
-    - 디스크 이미지에 어떤 아티팩트가 실제로 존재하는지 "존재 여부 체크" 용으로 사용
-    """
-    resolved = _resolve_image(image_path)
-    summary: Dict[str, Any] = {
-        "image": resolved["original"],
-        "target": resolved["target"],
-        "artifacts": {},
-    }
-
-    for key, (plugin, desc) in _ARTIFACT_PLUGINS.items():
-        result: Dict[str, Any] = {
-            "plugin": plugin,
-            "description": desc,
-            "exists": False,
-            "count": 0,
-            "error": None,
-        }
-        try:
-            r = run_single_plugin(image_path=image_path, plugin=plugin, max_rows=max_rows_per_artifact)
-            parsed = r.get("parsed")
-            if isinstance(parsed, list):
-                result["count"] = len(parsed)
-                result["exists"] = len(parsed) > 0
-            else:
-                if parsed:
-                    result["count"] = 1
-                    result["exists"] = True
-        except Exception as e:
-            result["error"] = str(e)
-        summary["artifacts"][key] = result
-
-    return summary
-
-@mcp.tool()
 def extract_file_or_directory(
     image_path: str,
     fs_path: str,
     output_dir: Optional[str] = None,
-    max_list: int = 200,
+    max_list: int = 0,
 ) -> Dict[str, Any]:
     """
-    디스크 이미지 내부 파일/디렉터리 추출(target-fs 래퍼).
-
-    내부적으로 실행되는 명령:
-        target-fs <image> cp "<fs_path>" -o <output_dir>
-
-    예시:
-        target-fs image.E01 cp "C:/Windows/System32/config" -o ./config_dump
-
-    - image_path: 디스크 이미지 경로 (분할 이미지 가능)
-    - fs_path: 이미지 내부 절대 경로 (예: "C:/Windows/System32/config/SAM")
-    - output_dir:
-        * 지정 시: 해당 디렉터리에 바로 cp
-        * 미지정 시: DEFAULT_EXTRACT_DIR/<sanitized_fs_path>_<timestamp>/ 으로 생성
-    - max_list: 반환 시 샘플로 보여줄 파일 목록 최대 개수
+    절대 경로 기반으로 파일 또는 폴더 추출
     """
     resolved = _resolve_image(image_path)
     base_dir = _ensure_extract_dir(output_dir or DEFAULT_EXTRACT_DIR)
@@ -732,14 +563,17 @@ def extract_file_or_directory(
     created_files: List[str] = []
     created_dirs: List[str] = []
 
+    unlimited = max_list == 0
+
     for root, dirs, files in os.walk(out_dir):
         for d in dirs:
             created_dirs.append(str(Path(root) / d))
         for f in files:
             created_files.append(str(Path(root) / f))
-            if len(created_files) >= max_list:
+            if not unlimited and len(created_files) >= max_list:
                 break
-        if len(created_files) >= max_list:
+
+        if not unlimited and len(created_files) >= max_list:
             break
 
     return {
@@ -748,12 +582,33 @@ def extract_file_or_directory(
         "fs_path": fs_path,
         "output_dir": str(out_dir),
         "created_files_sample": created_files,
-        "created_dirs_sample": created_dirs,
-        "note": (
-            "Files/directories are copied using target-fs cp. "
-            "created_*_sample는 최대 max_list까지만 보여줌"
-        ),
+        "created_dirs_sample": created_dirs
     }
+
+@mcp.tool()
+def extract_downloads_folder(
+    image_path: str,
+    username: str = "winbg",
+    output_dir: Optional[str] = None,
+    max_list: int = 0,
+) -> Dict[str, Any]:
+    """
+    지정한 사용자 프로필의 Downloads 폴더 전체 추출
+    """
+    fs_path = f"C:\\Users\\{username}\\Downloads"
+
+    base_result = extract_file_or_directory(
+        image_path=image_path,
+        fs_path=fs_path,
+        output_dir=output_dir,
+        max_list=max_list,
+    )
+
+    base_result["downloads_fs_path"] = fs_path
+    base_result["username"] = username
+    base_result["kind"] = "downloads_folder"
+
+    return base_result
 
 @mcp.tool()
 def acquire_minimal_artifacts(
@@ -763,22 +618,7 @@ def acquire_minimal_artifacts(
     output_type: str = "tar",
 ) -> Dict[str, Any]:
     """
-    acquire를 이용해 기본 아티팩트 컨테이너를 생성하는 래퍼.
-
-    내부적으로 실행되는 명령어:
-        acquire -p minimal [image 파일 이름]
-        acquire -p <profile> -ot <output_type> -of <OUT_FILE> <resolved_image>
-
-    - image_path:
-        * E01, raw, 분할(raw .001/.002...) 모두 지원
-        * _resolve_image 로 병합/정규화 후 target 경로 사용
-    - output_dir:
-        * None 이면 ACQUIRE_OUTPUT_DIR/<이미지이름_타임스탬프>/ 에 결과 생성
-        * 지정 시, 해당 디렉터리 하위에 서브디렉터리 없이 바로 파일 생성 기준 디렉터리로 사용
-    - profile:
-        * acquire --profile(-p)에 해당 (기본: "minimal")
-    - output_type:
-        * acquire --output-type(-ot)에 해당 (기본: "tar")
+    acquire를 이용해 기본 아티팩트 컨테이너 생성
     """
     resolved = _resolve_image(image_path)
 
@@ -847,11 +687,7 @@ def acquire_minimal_artifacts(
         "cmd": cmd,
         "extracted_dir": str(extracted_dir) if extracted_dir else None,
         "extracted_files_sample": extracted_files_sample,
-        "extract_error": extract_error,
-        "note": (
-            "acquire -p minimal 로 tar 생성 후, 성공 시 out_dir/extracted/ 에 자동으로 압축 해제"
-            "extracted_files_sample 은 최대 100개까지만 표시"
-        ),
+        "extract_error": extract_error
     }
 
 @mcp.tool()
@@ -862,12 +698,6 @@ def build_timeline(
 ) -> Dict[str, Any]:
     """
     여러 Dissect 타임라인 아티팩트를 묶어서 단일 정렬 타임라인 생성.
-
-    - plugins: 사용할 타임라인 키 리스트
-      * None 이면 _TIMELINE_PLUGINS 전체 사용
-      * 예: ["mft", "prefetch", "evtx"]
-    - 각 플러그인을 run_single_plugin 으로 실행 후, 레코드에서 timestamp 필드 추출
-    - timestamp 기준으로 전체 타임라인 정렬
     """
     resolved = _resolve_image(image_path)
     selected = plugins or list(_TIMELINE_PLUGINS.keys())
