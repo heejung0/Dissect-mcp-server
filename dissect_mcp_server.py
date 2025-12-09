@@ -12,13 +12,13 @@ from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("dissect-MCP")
 
-TARGET_QUERY_BIN = os.getenv("DISSECT_TARGET_QUERY", "/Users/whiteing/GitHub/Dissect-mcp-server/.venv/bin/target-query")
-RDUMP_BIN = os.getenv("DISSECT_RDUMP", "/Users/whiteing/GitHub/Dissect-mcp-server/.venv/bin/rdump")
-TARGET_FS_BIN = os.getenv("DISSECT_TARGET_FS", "/Users/whiteing/GitHub/Dissect-mcp-server/.venv/bin/target-fs")
-ACQUIRE_BIN = os.getenv("DISSECT_ACQUIRE_BIN", "/Users/whiteing/GitHub/Dissect-mcp-server/.venv/bin/acquire")
+TARGET_QUERY_BIN = os.getenv("DISSECT_TARGET_QUERY", "/path/to/Dissect-mcp-server/.venv/bin/target-query")
+RDUMP_BIN = os.getenv("DISSECT_RDUMP", "/path/to/Dissect-mcp-server/.venv/bin/rdump")
+TARGET_FS_BIN = os.getenv("DISSECT_TARGET_FS", "/path/to/Dissect-mcp-server/.venv/bin/target-fs")
+ACQUIRE_BIN = os.getenv("DISSECT_ACQUIRE_BIN", "/path/to/Dissect-mcp-server/.venv/bin/acquire")
 
-ACQUIRE_OUTPUT_DIR = os.getenv("DISSECT_ACQUIRE_DIR", "/Users/whiteing/GitHub/Dissect-mcp-server/acquire_output")
-DEFAULT_EXTRACT_DIR = os.getenv("DISSECT_EXTRACT_DIR", "/Users/whiteing/GitHub/Dissect-mcp-server/dissect_extracts")
+ACQUIRE_OUTPUT_DIR = os.getenv("DISSECT_ACQUIRE_DIR", "/path/to/Dissect-mcp-server/acquire_output")
+DEFAULT_EXTRACT_DIR = os.getenv("DISSECT_EXTRACT_DIR", "/path/to/Dissect-mcp-server/dissect_extracts")
 
 _SYSTEM_PLUGINS = {
     "hostname": "os.windows._os.hostname",
