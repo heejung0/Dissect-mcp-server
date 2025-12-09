@@ -35,21 +35,21 @@ _SYSTEM_PLUGINS = {
 }
 
 _ARTIFACT_PLUGINS = {
-    "browser": ("apps.browser.browser.history", "Web Browser History"),
-    "webserver": ("apps.webserver.webserver.logs", "WebServer Logs"),
-    "amcache": ("os.windows.amcache", "Amcache"),
-    "jumplist": ("os.windows.jumplist", "Jumplist"),
-    "evtx": ("os.windows.log.evtx", "Event Log"),
-    "prefetch": ("os.windows.prefetch", "Prefetch"),
-    "bam": ("os.windows.regf.bam", "BAM"),
-    "mru.mstsc": ("os.windows.regf.mru.mstsc", "MRU MSTSC"),
-    "mru.opensave": ("os.windows.regf.mru.opensave", "MRU Opensave"),
-    "mru.recentdocs": ("os.windows.regf.mru.recentdocs", "MRU Recent Docs"),
-    "refg": ("os.windows.regf.regf", "Return Registry Keys and Values"),
-    "shellbags": ("os.windows.regf.shellbags", "Shellbags"),
-    "shimcache": ("os.windows.regf.shimcache", "Shimcache"),
-    "userassist": ("os.windows.regf.userassist", "User Assist"),
-    "tasks": ("os.windows.tasks", "Scheduled Tasks")
+    "browser": ("browser.history", "Return history for: firefox, chromium, edge, brave, iexplore, chrome (output: records)"),
+    "webserver": ("webserver.logs", "Returns log file records from installed webservers. (output: records)"),
+    "amcache": ("os.windows.amcache", "Return Amcache"),
+    "jumplist": ("os.windows.jumplist", "Return Jumplist"),
+    "evtx": ("os.windows.log.evtx.evtx", "Parse Windows Eventlog files (``*.evt``). (output: records)"),
+    "prefetch": ("os.windows.prefetch", "Return the content of all prefetch files. (output: records)"),
+    "bam": ("os.windows.regf.bam", "Parse bam and dam registry keys. (output: records)"),
+    "mru.mstsc": ("os.windows.regf.mru.mstsc", "Return Terminal Server Client MRU data. (output: records)"),
+    "mru.opensave": ("os.windows.regf.mru.opensave", "Return the OpenSaveMRU data. (output: records)"),
+    "mru.recentdocs": ("os.windows.regf.mru.recentdocs", "Return the RecentDocs data. (output: records)"),
+    "regf": ("os.windows.regf.regf", "Return all registry keys and values. (output: records)"),
+    "shellbags": ("os.windows.regf.shellbags", "Yields Windows Shellbags. (output: records)"),
+    "shimcache": ("os.windows.regf.shimcache", "Return the shimcache. (output: records)"),
+    "userassist": ("os.windows.regf.userassist", "Return the UserAssist information for each user. (output: records)"),
+    "tasks": ("os.windows.tasks", "Return all scheduled tasks on a Windows system. (output: records)")
 }
 
 _TIMELINE_PLUGINS = {
@@ -58,8 +58,7 @@ _TIMELINE_PLUGINS = {
     "amcache": "os.windows.amcache.files",
     "jumplist_auto": "os.windows.jumplist.automatic_destination",
     "jumplist_custom": "os.windows.jumplist.custom_destination",
-    "activities": "os.windows.activitiescache",
-    "evtx": "os.windows.log.evtx",
+    "evtx": "os.windows.log.evtx.evtx",
 }
 
 class DissectError(RuntimeError):
