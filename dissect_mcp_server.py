@@ -12,13 +12,13 @@ from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("dissect-MCP")
 
-TARGET_QUERY_BIN = os.getenv("DISSECT_TARGET_QUERY")
-RDUMP_BIN = os.getenv("DISSECT_RDUMP")
-TARGET_FS_BIN = os.getenv("DISSECT_TARGET_FS")
-ACQUIRE_BIN = os.getenv("DISSECT_ACQUIRE_BIN")
+TARGET_QUERY_BIN = os.getenv("DISSECT_TARGET_QUERY", "/Users/whiteing/GitHub/Dissect-mcp-server/.venv/bin/target-query")
+RDUMP_BIN = os.getenv("DISSECT_RDUMP", "/Users/whiteing/GitHub/Dissect-mcp-server/.venv/bin/rdump")
+TARGET_FS_BIN = os.getenv("DISSECT_TARGET_FS", "/Users/whiteing/GitHub/Dissect-mcp-server/.venv/bin/target-fs")
+ACQUIRE_BIN = os.getenv("DISSECT_ACQUIRE_BIN", "/Users/whiteing/GitHub/Dissect-mcp-server/.venv/bin/acquire")
 
-ACQUIRE_OUTPUT_DIR = os.getenv("DISSECT_ACQUIRE_DIR")
-DEFAULT_EXTRACT_DIR = os.getenv("DISSECT_EXTRACT_DIR")
+ACQUIRE_OUTPUT_DIR = os.getenv("DISSECT_ACQUIRE_DIR", "/Users/whiteing/GitHub/Dissect-mcp-server/acquire_output")
+DEFAULT_EXTRACT_DIR = os.getenv("DISSECT_EXTRACT_DIR", "/Users/whiteing/GitHub/Dissect-mcp-server/dissect_extracts")
 
 _SYSTEM_PLUGINS = {
     "hostname": "os.windows._os.hostname",
@@ -35,22 +35,21 @@ _SYSTEM_PLUGINS = {
 }
 
 _ARTIFACT_PLUGINS = {
-    "prefetch": ("os.windows.prefetch", "Windows Prefetch files"),
-    "amcache": ("os.windows.amcache.files", "Amcache files"),
-    "userassist": ("os.windows.regf.userassist", "UserAssist registry"),
+    "browser": ("apps.browser.browser.history", "Web Browser History"),
+    "webserver": ("apps.webserver.webserver.logs", "WebServer Logs"),
+    "amcache": ("os.windows.amcache", "Amcache"),
+    "jumplist": ("os.windows.jumplist", "Jumplist"),
+    "evtx": ("os.windows.log.evtx", "Event Log"),
+    "prefetch": ("os.windows.prefetch", "Prefetch"),
+    "bam": ("os.windows.regf.bam", "BAM"),
+    "mru.mstsc": ("os.windows.regf.mru.mstsc", "MRU MSTSC"),
+    "mru.opensave": ("os.windows.regf.mru.opensave", "MRU Opensave"),
+    "mru.recentdocs": ("os.windows.regf.mru.recentdocs", "MRU Recent Docs"),
+    "refg": ("os.windows.regf.regf", "Return Registry Keys and Values"),
     "shellbags": ("os.windows.regf.shellbags", "Shellbags"),
-    "thumbcache": ("os.windows.thumbcache", "Thumbnail cache"),
-    "jumplist_auto": (
-        "os.windows.jumplist.automatic_destination",
-        "AutomaticDestination jumplist",
-    ),
-    "jumplist_custom": (
-        "os.windows.jumplist.custom_destination",
-        "CustomDestination jumplist",
-    ),
-    "evtx": ("os.windows.log.evtx", "Windows EVTX event logs"),
-    "mft": ("filesystem.ntfs.mft.records", "NTFS MFT records"),
-    "sru": ("os.windows.sru.application", "SRU Application usage"),
+    "shimcache": ("os.windows.regf.shimcache", "Shimcache"),
+    "userassist": ("os.windows.regf.userassist", "User Assist"),
+    "tasks": ("os.windows.tasks", "Scheduled Tasks")
 }
 
 _TIMELINE_PLUGINS = {
@@ -556,6 +555,80 @@ def search_keyword(
         "raw_stdout": out,
         "parsed": parsed,
     }
+
+@mcp.tool()
+def list_artifact_plugins() -> Dict[str, Any]:
+    """
+    _ARTIFACT_PLUGINS에 등록된 아티팩트 플러그인 목록 반환.
+
+    - key: 내부 식별자 (예: "prefetch")
+    - plugin: target-query에서 사용할 full plugin name (예: "os.windows.prefetch")
+    - description: 사람이 보기 좋은 설명
+    """
+    artifacts = []
+    for key, (plugin, desc) in _ARTIFACT_PLUGINS.items():
+        artifacts.append(
+            {
+                "key": key,
+                "plugin": plugin,
+                "description": desc,
+            }
+        )
+    return {"artifacts": artifacts}
+
+@mcp.tool()
+def run_all_artifact_plugins(
+    image_path: str,
+    max_rows_per_plugin: int = 0,
+) -> Dict[str, Any]:
+    """
+    _ARTIFACT_PLUGINS에 정의된 모든 플러그인을 실행하고,
+    각 플러그인의 parsed 결과를 그대로 반환하는 래퍼.
+
+    - image_path: 디스크 이미지 경로
+    - max_rows_per_plugin: 각 플러그인 결과에서 상위 N개까지만 사용 (0이면 제한 없음)
+    """
+    resolved = _resolve_image(image_path)
+
+    results: Dict[str, Any] = {
+        "image": resolved["original"],
+        "target": resolved["target"],
+        "merged": resolved["merged"],
+        "segments": resolved["segments"],
+        "max_rows_per_plugin": max_rows_per_plugin,
+        "artifacts": {},
+    }
+
+    for key, (plugin, desc) in _ARTIFACT_PLUGINS.items():
+        entry: Dict[str, Any] = {
+            "plugin": plugin,
+            "description": desc,
+            "count": 0,
+            "parsed": None,
+            "error": None,
+        }
+        try:
+            r = run_single_plugin(
+                image_path=image_path,
+                plugin=plugin,
+                max_rows=max_rows_per_plugin,
+            )
+            parsed = r.get("parsed")
+
+            if isinstance(parsed, list):
+                entry["count"] = len(parsed)
+            elif parsed:
+                entry["count"] = 1
+            else:
+                entry["count"] = 0
+
+            entry["parsed"] = parsed
+        except Exception as e:
+            entry["error"] = str(e)
+
+        results["artifacts"][key] = entry
+
+    return results
 
 @mcp.tool()
 def detect_artifacts_existence(
