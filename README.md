@@ -10,6 +10,7 @@ Dissect MCP Server는 [Dissect](https://docs.dissect.tools/en/stable/index.html)
 - `run_multiple_plugins` : 여러 개의 Dissect 플러그인 실행  
 - `extract_system_profile` : 기본 프로파일 정보 수집
 - `search_keyword` : 파일명, 확장자, 경로 등으로 필터링
+- `extract_powershell_activity` : Event Log에서 PowerShell 관련 핵심 이벤트만 추출
 - `list_artifact_plugins` : 사용자가 정의한 아티팩트 플러그인 목록 조회
 - `run_all_artifact_plugins` : 사용자가 정의한 아티팩트 플러그인 일괄 실행
 - `extract_file_or_directory` : 절대 경로 기반으로 디스크 이미지 내의 특정 파일 또는 디렉토리 추출
