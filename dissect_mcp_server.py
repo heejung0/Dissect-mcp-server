@@ -91,15 +91,6 @@ _MFT_SYSTEM_PREFIXES = (
 
 _MFT_USE_TS_TYPES = {"B", "M"}
 
-_DROP_ALWAYS = {
-    "_source",
-    "_classification",
-    "_generated",
-    "_version",
-    "_type",
-    "_recorddescriptor",
-}
-
 _SUSPICIOUS_PS_KEYWORDS = [
     "-enc",
     "-encodedcommand",
@@ -139,58 +130,100 @@ _SUSPICIOUS_CHILD_PROCESSES = (
     "rundll32.exe",
     "regsvr32.exe",
     "powershell.exe",
+    "pwsh.exe"
 )
 
 _KNOWN_GOOD_CHILD_REGEX = (
     r"\\winlogbeat\.exe$",
 )
 
-def _is_interesting_powershell(rec: dict) -> bool:
-    provider = (rec.get("Provider_Name") or "").lower()
-    event_id = int(rec.get("EventID") or 0)
+_PS_CORE_EVENT_IDS = { 4103, 4104, 4105, 4106, 400, 403, 600, 800 }
 
-    if provider not in (
-        "microsoft-windows-powershell",
-        "microsoft-windows-sysmon",
-        "microsoft-windows-security-auditing",
-    ):
+def _get_lower(rec: dict, *keys: str) -> str:
+    for k in keys:
+        v = rec.get(k)
+        if v:
+            return str(v).lower()
+    return ""
+
+def _get_int(rec: dict, *keys: str) -> int:
+    for k in keys:
+        v = rec.get(k)
+        if v is None:
+            continue
+        try:
+            return int(v)
+        except Exception:
+            pass
+    return 0
+
+def _is_interesting_powershell(rec: dict) -> bool:
+    provider = _get_lower(rec, "Provider_Name", "ProviderName", "Provider")
+    event_id = _get_int(rec, "EventID", "EventId", "event_id")
+
+    if provider in ("microsoft-windows-powershell", "windows powershell"):
+        if event_id in _PS_CORE_EVENT_IDS:
+            return True
         return False
 
-    if provider == "microsoft-windows-powershell" and event_id in (4103, 4104, 4105, 4106):
-        return True
+    if provider not in ("microsoft-windows-sysmon", "microsoft-windows-security-auditing"):
+        return False
 
-    if provider in ("microsoft-windows-sysmon", "microsoft-windows-security-auditing"):
-        if event_id not in (1, 4688):
-            return False
+    if event_id not in (1, 4688):
+        return False
 
-    image = (rec.get("Image") or rec.get("Process_Name") or "").lower()
-    parent_image = (rec.get("ParentImage") or "").lower()
-    cmdline = (
-        rec.get("CommandLine")
-        or rec.get("ParentCommandLine")
-        or ""
-    ).lower()
+    image = _get_lower(rec, "Image", "Process_Name", "NewProcessName", "NewProcess_Name", "ProcessName", "ApplicationName")
+    parent_image = _get_lower(rec, "ParentImage", "ParentProcessName", "CreatorProcessName", "ParentProcess", "ParentProcessPath")
+    cmdline = _get_lower(rec, "CommandLine", "ProcessCommandLine", "NewProcessCommandLine", "ParentCommandLine", "CommandLineText", "Process_Command_Line")
+
+    parent_is_ps = ("powershell.exe" in parent_image) or ("pwsh.exe" in parent_image)
+    image_is_ps  = ("powershell.exe" in image) or ("pwsh.exe" in image)
+
+    parent_is_cmd = "cmd.exe" in parent_image
+    image_is_cmd  = "cmd.exe" in image
+
+    has_shell = (
+        parent_is_ps or image_is_ps or ("powershell.exe" in cmdline) or ("pwsh.exe" in cmdline) or
+        parent_is_cmd or image_is_cmd or ("cmd.exe" in cmdline)
+    )
+
+    if not has_shell:
+        if image.endswith(("iexplore.exe", "msedge.exe", "chrome.exe", "firefox.exe")) and re.search(r"https?://", cmdline):
+            return True
+
+        writable_markers = ("\\appdata\\local\\temp\\","\\appdata\\roaming\\","\\users\\public\\","\\downloads\\")
+        in_writable = any(m in image for m in writable_markers)
+
+        parent_base = parent_image.split("\\")[-1] if parent_image else ""
+        doc_openers = {"excel.exe","winword.exe","powerpnt.exe","outlook.exe","acrord32.exe","acrord64.exe","chrome.exe","msedge.exe","iexplore.exe","firefox.exe"}
+
+        image_base = image.split("\\")[-1] if image else ""
+        lolbins = {"cmd.exe","powershell.exe","pwsh.exe","wscript.exe","cscript.exe","mshta.exe","rundll32.exe","regsvr32.exe","bitsadmin.exe","certutil.exe","schtasks.exe","at.exe"}
+
+        if parent_base in doc_openers and (image_base in lolbins or in_writable):
+            return True
+
+        if in_writable and image_base in lolbins:
+            return True
+
+        return False
 
     if any(k in cmdline for k in _SUSPICIOUS_PS_KEYWORDS):
         return True
 
-    has_ps = (
-        "powershell.exe" in image
-        or "powershell.exe" in parent_image
-        or "powershell.exe" in cmdline
-    )
+    parent_is_shell = parent_is_ps or parent_is_cmd
 
-    if not has_ps:
-        return False
-
-    if "powershell.exe" in parent_image and image:
+    if parent_is_shell:
         for good in _KNOWN_GOOD_CHILD_REGEX:
-            if re.search(good, image):
+            if image and re.search(good, image):
                 return False
 
         for bad_child in _SUSPICIOUS_CHILD_PROCESSES:
             if image.endswith(bad_child):
                 return True
+
+        if image.endswith("cmd.exe") and re.search(r"(^|[\s\"\\])/c([\s\"\\]|$)", cmdline):
+            return True
 
     return True
 
@@ -428,9 +461,6 @@ def _extract_timestamp(record: Dict[str, Any]) -> Optional[str]:
             return str(v)
 
     return None
-
-def _cleanup_common(rec: Dict[str, Any]) -> Dict[str, Any]:
-    return {k: v for k, v in rec.items() if k not in _DROP_ALWAYS}
 
 def _normalize_evtx_record(rec: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     src = rec.get("SourceName")
